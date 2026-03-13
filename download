@@ -1,0 +1,633 @@
+import { useState, useEffect } from 'react';
+import { Calculator, FileText, History, Printer, Send, Trash2, Plus, IndianRupee } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { format } from 'date-fns';
+
+type Item = {
+  id: string;
+  item_name: string;
+  material: 'Gold' | 'Silver' | 'Other';
+  rate: number;
+  weight: number;
+  amount: number;
+};
+
+type Bill = {
+  id: number;
+  customer_name: string;
+  phone_number: string;
+  whatsapp_number: string;
+  payment_method: string;
+  payment_method_other?: string;
+  items: any;
+  total_amount: number;
+  created_at: string;
+};
+
+function App() {
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Customer Details
+  const [customerName, setCustomerName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [sameAsPhone, setSameAsPhone] = useState(false);
+  
+  // Payment
+  const [paymentMethod, setPaymentMethod] = useState('Cash');
+  const [paymentOther, setPaymentOther] = useState('');
+  
+  // Current Item
+  const [itemName, setItemName] = useState('');
+  const [material, setMaterial] = useState<'Gold' | 'Silver' | 'Other'>('Gold');
+  const [rate, setRate] = useState('');
+  const [weight, setWeight] = useState('');
+  const [amount, setAmount] = useState('');
+  
+  // Cart
+  const [cart, setCart] = useState<Item[]>([]);
+
+  useEffect(() => {
+    fetchBills();
+  }, []);
+
+  useEffect(() => {
+    if (sameAsPhone) {
+      setWhatsapp(phone);
+    }
+  }, [phone, sameAsPhone]);
+
+  // Auto calculate amount if rate and weight are present
+  useEffect(() => {
+    if (rate && weight) {
+      const r = parseFloat(rate);
+      const w = parseFloat(weight);
+      if (!isNaN(r) && !isNaN(w)) {
+        setAmount((r * w).toFixed(2));
+      }
+    }
+  }, [rate, weight]);
+
+  const fetchBills = async () => {
+    try {
+      const res = await fetch('/api/bills');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setBills(data);
+      } else {
+        console.error('Expected array, got:', data);
+        setBills([]);
+      }
+    } catch (err) {
+      console.error('Fetch error:', err);
+      setBills([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addItem = () => {
+    if (!itemName || !amount) {
+      alert('Please enter item name and amount');
+      return;
+    }
+    
+    const newItem: Item = {
+      id: Math.random().toString(36).substr(2, 9),
+      item_name: itemName,
+      material,
+      rate: parseFloat(rate) || 0,
+      weight: parseFloat(weight) || 0,
+      amount: parseFloat(amount) || 0
+    };
+    
+    setCart([...cart, newItem]);
+    
+    // Reset item form
+    setItemName('');
+    setRate('');
+    setWeight('');
+    setAmount('');
+  };
+
+  const removeItem = (id: string) => {
+    setCart(cart.filter(item => item.id !== id));
+  };
+
+  const cartTotal = cart.reduce((sum, item) => sum + item.amount, 0);
+  const todaysSales = (bills || [])
+    .filter(b => b.created_at && new Date(b.created_at).toDateString() === new Date().toDateString())
+    .reduce((sum, b) => sum + Number(b.total_amount || 0), 0);
+
+  const generatePDF = (bill: Bill, autoPrint = false) => {
+    const doc = new jsPDF();
+    
+    // Header styling to match typical Indian jewellery bill
+    doc.setFontSize(24);
+    doc.setTextColor(184, 134, 11); // Dark Goldenrod
+    doc.setFont('helvetica', 'bold');
+    doc.text('SHRI BAIDYANATH PRASAD JEWELLERS', 105, 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Dealers in: Gold, Silver & Diamond Ornaments', 105, 26, { align: 'center' });
+    doc.text('Main Market, City Center - 123456', 105, 31, { align: 'center' });
+    doc.text('Mob: +91 9876543210, +91 9123456780', 105, 36, { align: 'center' });
+    
+    // GSTIN if needed (placeholder)
+    // doc.text('GSTIN: 22AAAAA0000A1Z5', 15, 36);
+
+    // Divider
+    doc.setDrawColor(184, 134, 11);
+    doc.setLineWidth(1);
+    doc.line(10, 42, 200, 42);
+    
+    // Title
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('TAX INVOICE / ESTIMATE', 105, 49, { align: 'center' });
+    
+    // Box for details
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.2);
+    doc.rect(10, 52, 190, 30);
+    
+    // Bill Details Left
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Customer Details:', 12, 58);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Name: ${bill.customer_name}`, 12, 65);
+    doc.text(`Phone: ${bill.phone_number}`, 12, 72);
+    if(bill.whatsapp_number && bill.whatsapp_number !== bill.phone_number) {
+        doc.text(`WhatsApp: ${bill.whatsapp_number}`, 12, 79);
+    }
+    
+    // Bill Details Right
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Bill No: ${bill.id}`, 140, 58);
+    doc.text(`Date: ${format(new Date(bill.created_at), 'dd/MM/yyyy')}`, 140, 65);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Time: ${format(new Date(bill.created_at), 'hh:mm a')}`, 140, 72);
+    doc.text(`Payment: ${bill.payment_method} ${bill.payment_method === 'Other' ? `(${bill.payment_method_other})` : ''}`, 140, 79);
+    
+    // Items Table
+    let itemsArray = [];
+    try {
+      itemsArray = typeof bill.items === 'string' ? JSON.parse(bill.items) : bill.items;
+    } catch (e) {
+      itemsArray = [];
+    }
+
+    const tableColumn = ["S.No", "Description of Goods", "Purity", "Weight(g)", "Rate/g (Rs)", "Amount (Rs)"];
+    const tableRows = itemsArray.map((item: any, index: number) => [
+      index + 1,
+      item.item_name,
+      item.material,
+      item.weight > 0 ? item.weight.toFixed(3) : '-',
+      item.rate > 0 ? item.rate.toFixed(2) : '-',
+      item.amount.toFixed(2)
+    ]);
+
+    autoTable(doc, {
+      startY: 85,
+      head: [tableColumn],
+      body: tableRows,
+      theme: 'grid',
+      headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center' },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 15 },
+        1: { halign: 'left' },
+        2: { halign: 'center', cellWidth: 25 },
+        3: { halign: 'right', cellWidth: 30 },
+        4: { halign: 'right', cellWidth: 30 },
+        5: { halign: 'right', cellWidth: 35 },
+      },
+      foot: [['', '', '', '', 'Grand Total:', bill.total_amount.toFixed(2)]],
+      footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'right' },
+      margin: { top: 10, left: 10, right: 10 }
+    });
+
+    // Footer
+    // @ts-ignore
+    const finalY = (doc as any).lastAutoTable.finalY || 150;
+    
+    // Terms & Conditions
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Terms & Conditions:', 10, finalY + 15);
+    doc.text('1. Goods once sold will not be taken back or exchanged without this bill.', 10, finalY + 20);
+    doc.text('2. Subject to local jurisdiction only.', 10, finalY + 25);
+    
+    // Signatures
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Customer Signature', 30, finalY + 45, { align: 'center' });
+    doc.text('For Shri Baidyanath Prasad Jewellers', 160, finalY + 45, { align: 'center' });
+    
+    // Bottom border
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.5);
+    doc.line(10, finalY + 50, 200, finalY + 50);
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+    doc.text('Thank you for your visit!', 105, finalY + 55, { align: 'center' });
+    
+    if (autoPrint) {
+      doc.autoPrint();
+      window.open(doc.output('bloburl'), '_blank');
+    } else {
+      doc.save(`Invoice_${bill.id}_${bill.customer_name.replace(/\s+/g, '_')}.pdf`);
+    }
+    
+    return doc;
+  };
+
+  const handleGenerateBill = async () => {
+    if (!customerName || !phone) {
+      alert('Please enter customer name and phone number');
+      return;
+    }
+    if (cart.length === 0) {
+      alert('Please add at least one item');
+      return;
+    }
+    if (paymentMethod === 'Other' && !paymentOther) {
+      alert('Please specify the payment method');
+      return;
+    }
+
+    const newBill = {
+      customer_name: customerName,
+      phone_number: phone,
+      whatsapp_number: whatsapp,
+      payment_method: paymentMethod,
+      payment_method_other: paymentOther,
+      items: cart, // Sending array directly since we changed the backend to handle JSONB properly
+      total_amount: cartTotal
+    };
+
+    try {
+      const res = await fetch('/api/bills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newBill),
+      });
+      
+      const responseData = await res.json();
+      
+      if (!res.ok) {
+        console.error("Backend error:", responseData);
+        throw new Error(responseData.error || 'Failed to save bill');
+      }
+      
+      // Generate PDF & Save to computer
+      generatePDF(responseData, false);
+      
+      // Send to WhatsApp Web
+      if (whatsapp) {
+        const message = `*Shri Baidyanath Prasad Jewellers*\n\nHello ${customerName},\nThank you for shopping with us!\n\n*Bill Details:*\nBill No: ${responseData.id}\nTotal Amount: ₹${cartTotal.toFixed(2)}\nPayment Mode: ${paymentMethod}\n\nPlease find your invoice attached (sent separately) or collect it from the store.\n\nHave a great day!`;
+        const waUrl = `https://web.whatsapp.com/send?phone=91${whatsapp}&text=${encodeURIComponent(message)}`;
+        window.open(waUrl, '_blank');
+      }
+      
+      // Reset form
+      setCustomerName('');
+      setPhone('');
+      setWhatsapp('');
+      setSameAsPhone(false);
+      setCart([]);
+      setPaymentMethod('Cash');
+      setPaymentOther('');
+      
+      fetchBills();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Error generating bill: ${err.message}`);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-amber-50 font-sans text-slate-800">
+      {/* Header */}
+      <header className="bg-amber-700 text-white shadow-md p-4 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Calculator className="w-6 h-6" />
+              Shri Baidyanath Prasad Jewellers
+            </h1>
+            <p className="text-amber-200 text-sm">Quick billing with WhatsApp & PDF</p>
+          </div>
+          <div className="bg-amber-800 px-6 py-2 rounded-lg border border-amber-600 shadow-inner text-center">
+            <div className="text-amber-200 text-xs uppercase font-bold tracking-wider">Today's Sales</div>
+            <div className="text-2xl font-bold flex items-center justify-center">
+              <IndianRupee className="w-5 h-5" />
+              {todaysSales.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto p-4 space-y-6 mt-6">
+        
+        {/* Top Section: Customer Details & Payment Method */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Customer Details */}
+          <section className="bg-white p-6 rounded-xl shadow-sm border border-amber-100">
+            <h2 className="text-lg font-bold text-amber-900 mb-4 flex items-center gap-2 border-b border-amber-100 pb-2">
+              <span className="bg-amber-100 text-amber-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span>
+              Customer Details
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name *</label>
+                <input 
+                  type="text" 
+                  value={customerName}
+                  onChange={e => setCustomerName(e.target.value)}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition"
+                  placeholder="Enter name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
+                <input 
+                  type="tel" 
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition"
+                  placeholder="10-digit number"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
+                  <label className="flex items-center gap-2 text-sm text-amber-700 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={sameAsPhone}
+                      onChange={e => setSameAsPhone(e.target.checked)}
+                      className="rounded text-amber-600 focus:ring-amber-500"
+                    />
+                    Same as Phone
+                  </label>
+                </div>
+                <input 
+                  type="tel" 
+                  value={whatsapp}
+                  onChange={e => setWhatsapp(e.target.value)}
+                  disabled={sameAsPhone}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition disabled:bg-gray-50 disabled:text-gray-500"
+                  placeholder="For sending bill"
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Payment Method */}
+          <section className="bg-white p-6 rounded-xl shadow-sm border border-amber-100 flex flex-col">
+            <h2 className="text-lg font-bold text-amber-900 mb-4 flex items-center gap-2 border-b border-amber-100 pb-2">
+              <span className="bg-amber-100 text-amber-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span>
+              Payment Method
+            </h2>
+            <div className="flex flex-wrap gap-3 mb-4">
+              {['Cash', 'Card', 'UPI', 'Other'].map(method => (
+                <button
+                  key={method}
+                  onClick={() => setPaymentMethod(method)}
+                  className={`px-6 py-2.5 rounded-lg font-medium border transition-all ${
+                    paymentMethod === method 
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-md' 
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-amber-50'
+                  }`}
+                >
+                  {method}
+                </button>
+              ))}
+            </div>
+            {paymentMethod === 'Other' && (
+              <div className="mt-auto">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Specify Method *</label>
+                <input 
+                  type="text" 
+                  value={paymentOther}
+                  onChange={e => setPaymentOther(e.target.value)}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                  placeholder="e.g., Bank Transfer, Cheque"
+                />
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Add Item Section */}
+        <section className="bg-white p-6 rounded-xl shadow-sm border border-amber-100">
+          <h2 className="text-lg font-bold text-amber-900 mb-4 flex items-center gap-2 border-b border-amber-100 pb-2">
+            <span className="bg-amber-100 text-amber-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">3</span>
+            Add Items
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+            <div className="md:col-span-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
+              <input 
+                type="text" 
+                value={itemName}
+                onChange={e => setItemName(e.target.value)}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                placeholder="e.g., Gold Ring, Silver Chain"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Material</label>
+              <select 
+                value={material}
+                onChange={e => setMaterial(e.target.value as any)}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+              >
+                <option value="Gold">Gold</option>
+                <option value="Silver">Silver</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Rate / g (₹)</label>
+              <input 
+                type="number" 
+                value={rate}
+                onChange={e => setRate(e.target.value)}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none transition"
+                placeholder="0.00"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Weight (g)</label>
+              <input 
+                type="number" 
+                value={weight}
+                onChange={e => setWeight(e.target.value)}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none transition"
+                placeholder="0.00"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-bold text-amber-900 mb-1">Amount (₹)</label>
+              <input 
+                type="number" 
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                className="w-full p-2.5 border-2 border-gray-300 rounded-lg outline-none font-bold text-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition bg-gray-50"
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+          
+          <div className="mt-4 flex justify-end">
+            <button 
+              onClick={addItem}
+              className="bg-amber-100 hover:bg-amber-200 text-amber-900 px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 transition"
+            >
+              <Plus className="w-5 h-5" />
+              Add to Bill
+            </button>
+          </div>
+
+          {/* Cart Table */}
+          {cart.length > 0 && (
+            <div className="mt-6 overflow-x-auto border border-gray-200 rounded-lg">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-gray-700">
+                  <tr>
+                    <th className="p-3 font-semibold">Item</th>
+                    <th className="p-3 font-semibold">Material</th>
+                    <th className="p-3 font-semibold text-right">Rate</th>
+                    <th className="p-3 font-semibold text-right">Weight</th>
+                    <th className="p-3 font-semibold text-right">Amount</th>
+                    <th className="p-3 font-semibold text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white">
+                  {cart.map((item) => (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="p-3">{item.item_name}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          item.material === 'Gold' ? 'bg-yellow-100 text-yellow-800' : 
+                          item.material === 'Silver' ? 'bg-gray-200 text-gray-800' : 
+                          'bg-blue-100 text-blue-800'
+                        }`}>
+                          {item.material}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right">{item.rate ? `₹${item.rate}` : '-'}</td>
+                      <td className="p-3 text-right">{item.weight ? `${item.weight}g` : '-'}</td>
+                      <td className="p-3 text-right font-medium">₹{item.amount.toFixed(2)}</td>
+                      <td className="p-3 text-center">
+                        <button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-700 p-1">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-amber-50 border-t-2 border-amber-200">
+                  <tr>
+                    <td colSpan={4} className="p-3 text-right font-bold text-amber-900">Total Amount:</td>
+                    <td className="p-3 text-right font-bold text-lg text-amber-900">₹{cartTotal.toFixed(2)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* Action Button */}
+        <div className="flex gap-4">
+          <button 
+            onClick={handleGenerateBill}
+            disabled={cart.length === 0}
+            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold text-xl shadow-lg flex justify-center items-center gap-3 transition-all transform active:scale-95"
+          >
+            <FileText className="w-7 h-7" />
+            Generate Bill & Save
+          </button>
+        </div>
+
+        {/* History Section (Full Width) */}
+        <section className="bg-white p-6 rounded-xl shadow-sm border border-amber-100">
+          <h2 className="text-lg font-bold text-amber-900 mb-4 flex items-center gap-2 border-b border-amber-100 pb-2">
+            <History className="w-5 h-5" />
+            Recent Bills History
+          </h2>
+          
+          {loading ? (
+            <div className="text-center py-8 text-gray-500">Loading history...</div>
+          ) : !Array.isArray(bills) || bills.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">No bills generated yet.</div>
+          ) : (
+            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-gray-700">
+                  <tr>
+                    <th className="p-3 font-semibold">Bill No</th>
+                    <th className="p-3 font-semibold">Customer Name</th>
+                    <th className="p-3 font-semibold">Phone</th>
+                    <th className="p-3 font-semibold">Date & Time</th>
+                    <th className="p-3 font-semibold">Payment</th>
+                    <th className="p-3 font-semibold text-right">Amount</th>
+                    <th className="p-3 font-semibold text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white">
+                  {bills.map(bill => (
+                    <tr key={bill.id} className="hover:bg-amber-50 transition">
+                      <td className="p-3 text-gray-500">#{bill.id}</td>
+                      <td className="p-3 font-bold text-gray-800">{bill.customer_name}</td>
+                      <td className="p-3 text-gray-600">{bill.phone_number}</td>
+                      <td className="p-3 text-gray-600">{format(new Date(bill.created_at), 'dd MMM yyyy, hh:mm a')}</td>
+                      <td className="p-3">
+                        <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md text-xs font-medium border border-gray-200">
+                          {bill.payment_method}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right font-bold text-amber-900">₹{Number(bill.total_amount).toFixed(2)}</td>
+                      <td className="p-3">
+                        <div className="flex justify-center gap-2">
+                          <button 
+                            onClick={() => generatePDF(bill, false)}
+                            className="text-xs flex items-center gap-1.5 text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md font-medium transition"
+                          >
+                            <Printer className="w-4 h-4" /> PDF
+                          </button>
+                          {bill.whatsapp_number && (
+                            <a 
+                              href={`https://web.whatsapp.com/send?phone=91${bill.whatsapp_number}&text=${encodeURIComponent(`*Shri Baidyanath Prasad Jewellers*\n\nHello ${bill.customer_name},\nThank you for shopping with us!\n\n*Bill Details:*\nBill No: ${bill.id}\nTotal Amount: ₹${bill.total_amount}\nPayment Mode: ${bill.payment_method}\n\nPlease find your invoice attached (sent separately) or collect it from the store.\n\nHave a great day!`)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs flex items-center gap-1.5 text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-md font-medium transition"
+                            >
+                              <Send className="w-4 h-4" /> WhatsApp
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+      </main>
+    </div>
+  );
+}
+
+export default App;

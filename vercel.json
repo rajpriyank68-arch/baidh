@@ -1,0 +1,53 @@
+# Shri Baidyanath Prasad Jewellers - Billing App
+
+A full-stack modern billing application designed for jewellery shops. Built with React, Vite, Tailwind CSS, and Supabase.
+
+## Features
+- **Customer Management**: Quick entry for customer details including WhatsApp number.
+- **Dynamic Billing**: Add items with Material (Gold/Silver), Weight, and Rate to auto-calculate amounts.
+- **PDF Generation**: Automatically generates a professional, print-ready Indian jewellery invoice.
+- **WhatsApp Integration**: Sends customized bill details directly to the customer's WhatsApp via WhatsApp Web.
+- **Sales Tracking**: Real-time "Today's Sales" dashboard counter.
+- **Bill History**: Full history of generated bills saved securely in a database.
+
+## Tech Stack
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React
+- **PDF Generation**: jsPDF, jspdf-autotable
+- **Backend/Database**: Supabase (PostgreSQL), Vercel Serverless Functions
+
+## Setup & Deployment
+
+1. **Clone the repository**
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+3. **Database Setup (Supabase)**:
+   Create a table named `bills` with the following schema:
+   - `id`: int8 (Primary Key, Identity)
+   - `customer_name`: text
+   - `phone_number`: text
+   - `whatsapp_number`: text
+   - `payment_method`: text
+   - `payment_method_other`: text
+   - `items`: jsonb
+   - `total_amount`: numeric
+   - `created_at`: timestamptz (default: now())
+
+4. **Environment Variables**:
+   Create a `.env` file in the root directory:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+   SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+   SUPABASE_DB_SCHEMA=public
+   ```
+
+5. **Run Locally**:
+   ```bash
+   npm run dev
+   ```
+
+6. **Deploy**:
+   This project is optimized for deployment on Vercel. 
+   Simply connect your GitHub repository to Vercel and ensure the environment variables are set in the Vercel dashboard.
